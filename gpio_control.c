@@ -11,6 +11,8 @@ struct gpio_led_device {
     int led_pin_red;
 };
 
+static dev_t dev_num;
+static struct class *LED_class;
 struct gpio_led_device led_device;
 
 static int led_gpio_open(struct inode *inode, struct file *filp) 
@@ -55,18 +57,27 @@ static int __init gpio_init(void)
     if (ret < 0) {
         printk(KERN_ERR "Failed to register GPIO driver\n");
         return ret;
-    }    
+    }
+
+    ret = alloc_chrdev_region(&dev_num, 0, 1, "led_device");
+    if (ret < 0) {
+        printk(KERN_ERR "Failed to allocate device number\n");
+        return ret;
+    }
 
     led_device.led_pin_red = LED_RED_PIN;
     cdev_init(&led_device.cdev, &led_gpio_fops);
-    ret = cdev_add(&led_device.cdev, MKDEV(0, 0), 1);
+    ret = cdev_add(&led_device.cdev, dev_num, 1);
 
     if (ret) {
         printk(KERN_ERR "Failed to add cdev\n");
         return ret;
     }
 
-    printk(KERN_INFO "Red LED ON\n");
+    LED_class = class_create(THIS_MODULE, "LED_class");
+    device_create(LED_class, NULL, dev_num, NULL, "LED_device");
+
+    printk(KERN_INFO "Module loaded, major num is %d\n", dev_num >> 20);
 
     return 0;
 }
@@ -74,7 +85,10 @@ static int __init gpio_init(void)
 static void __exit gpio_exit(void)
 {
     gpio_set_value(LED_RED_PIN, 0);
+    device_destroy(LED_class, dev_num);
+    class_destroy(LED_class);
     cdev_del(&led_device.cdev);
+    unregister_chrdev_region(dev_num, 1);
     gpio_free(LED_RED_PIN);
     printk(KERN_INFO "GPIO driver exit\n");
 }
